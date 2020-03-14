@@ -532,7 +532,7 @@ class VkAdsBackend:
         resp = self.session.get(url).json()
         cabinets = {}
         for cabinet in resp['response']:
-            cabinets[cabinet['account_name']] = cabinet['account_id']
+            cabinets[cabinet['account_id']] = [cabinet['account_name'], cabinet['account_type']]
         return cabinets
 
     def get_clients(self, cabinet_id):
@@ -549,8 +549,11 @@ class VkAdsBackend:
               f'access_token={self.token}&v=5.103'
         resp = self.session.get(url).json()
         clients = {}
-        for client in resp['response']:
-            clients[client['name']] = client['id']
+        try:
+            for client in resp['response']:
+                clients[client['name']] = client['id']
+        except KeyError:
+            print(resp)
         return clients
 
     def get_ads_stat(self, cabinet_id, ad_ids):

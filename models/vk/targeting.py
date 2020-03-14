@@ -1,12 +1,12 @@
 """ Use python 3.7 """
 
 from models.vk.backend import VkAdsBackend
+from models.database import *
+from models.vk.tools import get_token_and_user_id
 
 
 class MusicTargetingAssistant:
     """
-    Use python 3.7
-
     Фреймворк для простой работы с классом VkAds.
     Делает всю черновую работу, но не умеет принимать решений.
 
@@ -244,3 +244,191 @@ class MusicTargetingAssistant:
         """
         self.Vk.update_cpm(cabinet_id=self.cabinet_id, cpm_dict=cpm_dict)
         print(f'Обновлен СРМ у {len(cpm_dict)} объявлений')
+
+
+class MusicTargetingManager:
+
+    def __init__(self, login, password):
+        self.user = self._check_account(login, password)
+        self.Backend = VkAdsBackend(self.user.login, self.user.password, self.user.token)
+        self.Assistant = None
+        self.user_cabinets = self._check_user_cabinets()
+        self.agency_cabinets = self._check_agency_cabinets()
+        self.client_cabinets = self._check_client_cabinets()
+        self.user_campaigns = self._check_user_campaigns()
+        self.client_campaigns = self._check_client_campaigns()
+        self.user_campaign_details = self._check_user_campaign_details() if self.user_campaigns else None
+        self.client_campaigns_details = self._check_client_campaign_details() if self.client_campaigns else None
+
+    def _check_account(self, login, password):
+        """
+        Проверка на наличие аккаунта в базе данных
+
+        """
+        # Запрос в базу данных по логину
+        user = Users.get_or_none(Users.login == login)
+
+        # Если такого логина нет в базе данных, создается новый аккаунт и вносится в БД
+        if not user:
+            token, user_id = get_token_and_user_id(login, password)
+            user = Users.create(login=login, password=password, token=token, user_id=user_id)
+            return user
+        # Если логин есть, но не совпадают пароли, добывается новый токен и обновляется в БД вместе с паролем
+        elif user.password != password:
+            token, user_id = get_token_and_user_id(login, password)
+            user.password = password
+            user.save()
+            user.token = token
+            user.save()
+            return user
+        # Если логин есть и пароли совпадают, возвращается аккаунт из БД
+        else:
+            return user
+
+    def _check_user_cabinets(self):
+        """
+        Проверка на наличие пользовательских кабинетов в базе данных
+
+        :return:    list - список объектов UserCabinets
+
+        """
+        # Запрос в БД и к API Vk
+        user_cabinets_db = [x for x in UserCabinets.select().where(UserCabinets.owner == self.user)]
+        cabinets_vk = self.Backend.get_cabinets()
+        user_cabinets_vk = {}
+        for cab_id, cab_info in cabinets_vk.items():
+            if cab_info[1] == 'general':
+                user_cabinets_vk[cab_id] = cab_info
+
+        # Если кабинетов из ВК больше, в БД добавляются недостающие
+        if len(user_cabinets_vk) > len(user_cabinets_db):
+            cabinets = []
+            for cab_id, cab_info in user_cabinets_vk.items():
+                if cab_id not in [x.cabinet_id for x in user_cabinets_db] or len(user_cabinets_db) == 0:
+                    cab = UserCabinets.create(owner=self.user, cabinet_id=cab_id, cabinet_name=cab_info[0])
+                    cabinets.append(cab)
+            return cabinets
+        # А если не больше, то возвращается список кабинетов из БД
+        else:
+            return user_cabinets_db
+
+    def _check_agency_cabinets(self):
+        """
+        Проверка на наличие пользовательских кабинетов в базе данных
+
+        :return:    list - список обьектов AgencyCabinets
+
+        """
+        # Запрос в БД и к API Vk
+        agency_cabinets_db = [x for x in AgencyCabinets.select().where(AgencyCabinets.owner == self.user)]
+        cabinets_vk = self.Backend.get_cabinets()
+        agency_cabinets_vk = {}
+        for cab_id, cab_info in cabinets_vk.items():
+            if cab_info[1] == 'agency':
+                agency_cabinets_vk[cab_id] = cab_info
+
+        # Если кабинетов из ВК больше, в БД добавляются недостающие
+        if len(agency_cabinets_vk) > len(agency_cabinets_db):
+            cabinets = []
+            for cab_id, cab_info in agency_cabinets_vk.items():
+                if cab_id not in [x.cabinet_id for x in agency_cabinets_db] or len(agency_cabinets_db) == 0:
+                    cab = AgencyCabinets.create(owner=self.user, cabinet_id=cab_id, cabinet_name=cab_info[0])
+                    cabinets.append(cab)
+            return cabinets
+        # А если не больше, то возвращается список кабинетов из БД
+        else:
+            return agency_cabinets_db
+
+    def _check_client_cabinets(self):
+        """
+        Проверка на наличие клиентских кабинетов в базе данных
+
+        :return:    dict - {agency_cabinet_object: [client_cabinet_object_1, client_cabinet_object_2...]}
+
+        """
+        # Проход циклом по всем агентским кабинетам объекта
+        agency_clients = {}
+        for agency in self.agency_cabinets:
+            client_cabinets_db = [x for x in ClientCabinets.select().where(ClientCabinets.owner == agency)]
+            client_cabinets_vk = self.Backend.get_clients(agency.cabinet_id)
+            # Если кабинетов из ВК больше, то в БД добавляются недостающие
+            if len(client_cabinets_vk) > len(client_cabinets_db):
+                clients_list = []
+                for cl_name, cl_id in client_cabinets_vk.items():
+                    if cl_id not in [x.cabinet_id for x in client_cabinets_db] or len(client_cabinets_db) == 0:
+                        cl_cab = ClientCabinets.create(owner=agency, client_id=cl_id, client_name=cl_name)
+                        clients_list.append(cl_cab)
+                agency_clients[agency] = clients_list
+            # А если нет, то берутся кабинеты из БД
+            else:
+                agency_clients[agency.cabinet_id] = client_cabinets_db
+
+        return agency_clients
+
+    def _check_user_campaigns(self):
+        """
+        Проверка на наличие кампаний  в пользовательских кабинетах базы данных.
+        Из ВК кампании не подгружаются, потому что для использования в этом ПО
+            подойдут только кампании, созданные с помощью этого ПО, а они есть
+            в базе данных
+
+        :return:    dict - {user_cabinet_object: [campaign_object_1, campaign_object_2...]}
+
+        """
+        user_campaigns = {}
+        for cabinet in self.user_cabinets:
+            cabinet_campaigns = [x for x in UserCampaigns.select().where(UserCampaigns.owner == cabinet)]
+            user_campaigns[cabinet] = cabinet_campaigns
+        return user_campaigns
+
+    def _check_client_campaigns(self):
+        """
+        Проверка на наличие кампаний в клиентских кабинетах базы данных.
+        Из ВК кампании не подгружаются, потому что для использования в этом ПО
+            подойдут только кампании, созданные с помощью этого ПО, а они есть
+            в базе данных
+
+        :return:    dict - {client_cabinet_object: [campaign_object_1, campaign_object_2...]}
+
+        """
+        client_campaigns = {}
+        for cabinet in self.client_cabinets:
+            cabinet_campaigns = [x for x in ClientCampaigns.select().where(ClientCampaigns.owner == cabinet)]
+            client_campaigns[cabinet] = cabinet_campaigns
+        return client_campaigns
+
+    def _check_user_campaign_details(self):
+        """
+        Проверка на наличие деталей кампаний в пользовательских кабинетах базы данных.
+        Из ВК ничего не подгружаются, потому что для использования в этом ПО
+            подойдут только кампании, созданные с помощью этого ПО, а они есть
+            в базе данных
+
+        :return:    dict - {user_campaign_object: [user_campaign_detail_object_1, ...]}
+
+        """
+        campaign_details = {}
+        for campaign in self.user_campaigns:
+            details = [x for x in UserCampaignDetails.select().where(UserCampaignDetails.owner == campaign)]
+            campaign_details[campaign] = details
+        return campaign_details
+
+    def _check_client_campaign_details(self):
+        """
+        Проверка на наличие деталей кампаний в клиентских кабинетах базы данных.
+        Из ВК ничего не подгружаются, потому что для использования в этом ПО
+            подойдут только кампании, созданные с помощью этого ПО, а они есть
+            в базе данных
+
+        :return:    dict - {user_campaign_object: [user_campaign_detail_object_1, ...]}
+
+        """
+        campaign_details = {}
+        for campaign in self.client_campaigns:
+            details = [x for x in ClientCampaignDetails.select().where(ClientCampaignDetails.owner == campaign)]
+            campaign_details[campaign] = details
+        return campaign_details
+
+
+# TODO  Наделать ретурнов методам ассистента, чтобы менеджер мог ими нормально пользоваться
+
