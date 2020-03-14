@@ -1,0 +1,13 @@
+from peewee import *
+
+
+login =
+password =
+token =
+user_id =
+CABINET_ID =
+CLIENT_ID =
+
+VK_ACCOUNT = (login, password, token, user_id)
+
+DB = SqliteDatabase('database/database.db')
