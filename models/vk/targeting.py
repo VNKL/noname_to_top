@@ -1,6 +1,5 @@
 """ Use python 3.7 """
 
-
 from models.vk.backend import VkAdsBackend
 
 

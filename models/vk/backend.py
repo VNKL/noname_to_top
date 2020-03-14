@@ -4,9 +4,9 @@ from selenium import webdriver
 from bs4 import BeautifulSoup
 import re
 import time
-import requests
 import json
-from models.vk.tools import *
+import requests
+from models.vk.tools import get_token_and_user_id
 
 
 class VkGroupAudio:
@@ -289,6 +289,7 @@ class VkAdsBackend:
         self.login = login
         self.password = password
         self.token = self.__check_token(token)
+        self.user_id = None
         self.browser = VkGroupAudio(login, password)
         self.browser_auth = False
         self.session = requests.session()
@@ -439,13 +440,11 @@ class VkAdsBackend:
         """
         Получение токена для работы с кабинетом ВК, заодно получается user_id
 
-        :return:        str - токен с правами ads и offline
+        :return:        tupple - (token, user_id)
 
         """
-        vk = VKAuth(['ads,offline,groups'], '6121396', '5.103', email=self.login, pswd=self.password)
-        vk.auth()
-        token = vk.get_token()
-        self.user_id = vk.get_user_id()
+        token, user_id = get_token_and_user_id(self.login, self.password)
+        self.user_id = user_id
         return token
 
     def get_campaigns(self, cabinet_id, client_id=None):

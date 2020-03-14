@@ -1,6 +1,5 @@
 """ Use python 3.7 """
 
-
 import getpass
 from html.parser import HTMLParser
 import requests
@@ -261,3 +260,11 @@ class VKAuth(object):
         self.security_code = None
         self.email = None
         self.pswd = None
+
+
+def get_token_and_user_id(login, password):
+    vk = VKAuth(['ads,offline,groups'], '6121396', '5.103', email=login, pswd=password)
+    vk.auth()
+    token = vk.get_token()
+    user_id = vk.get_user_id()
+    return token, user_id
