@@ -556,12 +556,13 @@ class VkAdsBackend:
             print(resp)
         return clients
 
-    def get_ads_stat(self, cabinet_id, ad_ids):
+    def get_ads_stat(self, cabinet_id, ad_ids, ad_names):
         """
         Получаем необходимую стату с рекламных объявлений
 
         :param cabinet_id:      int - айди рекламного кабинета (личного или агентского)
         :param ad_ids:          list of int - список айди объявлений
+        :param ad_names:        dict - {ad_id: ad_name}
 
         :return:                dict - {ad_id: {'name': str, 'spent': float, 'reach': int}}
 
@@ -579,12 +580,12 @@ class VkAdsBackend:
         ads_stats = {}
         for i in resp['response']:
             if i['stats']:
-                ads_stats[i['id']] = {'name': self.ad_names[i['id']],
+                ads_stats[i['id']] = {'name': ad_names[i['id']],
                                       'spent': i['stats'][0]['spent'],
                                       'reach': i['stats'][0]['impressions'],
                                       }
             else:
-                ads_stats[i['id']] = {'name': self.ad_names[i['id']],
+                ads_stats[i['id']] = {'name': ad_names[i['id']],
                                       'spent': 0,
                                       'reach': 0}
 
