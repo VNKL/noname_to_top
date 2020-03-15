@@ -81,6 +81,7 @@ class TargetingAssistant:
         self.campaign_budget = campaign_budget
         self.campaign_id = None
         self.ads = {}
+        self.ad_names = {}
 
     def __check_group_id(self, group_id):
         if group_id is None:
@@ -162,6 +163,7 @@ class TargetingAssistant:
                                  posts=list(self.dark_posts.keys()),
                                  music=self.music_interest_filter)
         self.ads = {ad_id: self.dark_posts[post_url] for ad_id, post_url in ads.items()}
+        self.ad_names = self.Vk.ad_names
 
         print('Объявления созданы и отправлены на модерацию')
 
@@ -176,7 +178,8 @@ class TargetingAssistant:
             raise RuntimeError('self.ads пуст, сперва создай объявления, запустив start_test')
 
         # Получение статы объявлений и прослушиваний с плейлистов
-        ads_stat = self.Vk.get_ads_stat(cabinet_id=self.cabinet_id, ad_ids=list(self.ads.keys()))
+        ads_stat = self.Vk.get_ads_stat(cabinet_id=self.cabinet_id, ad_ids=list(self.ads.keys()),
+                                        ad_names=self.ad_names)
         listens = self.Vk.get_listens(group_id=self.fake_group_id, playlist_name=self.track_name)
 
         # Объединение статы объявлений и прослушиваний плейлистов
@@ -430,27 +433,36 @@ class TargetingManager:
         return campaign_details
 
     def _ads_from_db_for_continue_campaign(self, cabinet_type, campaign_name):
+
         # Достаем объявления из базы данных, если кампания находится в пользовательском кабинете
         if cabinet_type == 'user':
             campaign = UserCampaigns.select().where(UserCampaigns.campaign_name == campaign_name)
             ads = {x.ad_id: x.playlist_url for x in
                    UserCampaignDetails.select().where(UserCampaignDetails.owner == campaign)}
-            return ads
+            ad_names = {x.ad_id: x.ad_name for x in
+                        UserCampaignDetails.select().where(UserCampaignDetails.owner == campaign)}
+            return ads, ad_names
 
         # Достаем объявления из базы данных, если кампания находится в клиентском кабинете
         elif cabinet_type == 'client':
             campaign = ClientCampaigns.select().where(ClientCampaigns.campaign_name == campaign_name)
             ads = {x.ad_id: x.playlist_url for x in
                    ClientCampaignDetails.select().where(ClientCampaignDetails.owner == campaign)}
-            return ads
+            ad_names = {x.ad_id: x.ad_name for x in
+                        ClientCampaignDetails.select().where(ClientCampaignDetails.owner == campaign)}
+            return ads, ad_names
         else:
             raise ValueError("cabinet_type может быть только 'user' или 'client'")
 
     def _cabinet_id_for_continue_campaign(self, cabinet_type, campaign_name):
+
+        # Достаем кабинет и кампанию из БД, если речь о личном кабинете
         if cabinet_type == 'user':
             campaign = [x for x in UserCampaigns.select().where(UserCampaigns.campaign_name == campaign_name)][0]
             cabinet = UserCabinets.get_by_id(campaign.owner)
             return cabinet, campaign
+
+        # Если речь о клиентском кабинете
         elif cabinet_type == 'client':
             campaign = [x for x in ClientCampaigns.select().where(ClientCampaigns.campaign_name == campaign_name)][0]
             client_cabinet = ClientCabinets.get_by_id(campaign.owner)
@@ -475,6 +487,7 @@ class TargetingManager:
         # Запускает тест, получает айди объявлений и новой кампании
         self.Assistant.start_test()
         ads = self.Assistant.ads
+        ad_names = self.Assistant.ad_names
         campaign_id = self.Assistant.campaign_id
         campaign_name = f'{artist_name.upper()} / {track_name}'
 
@@ -484,7 +497,7 @@ class TargetingManager:
         self.user_campaigns[cabinet].append(new_campaign)
 
         # Создает детализацию новой кампании в базе данных
-        ads_insert = [{'owner': new_campaign, 'ad_id': ad_id, 'playlist_url': playlist_url}
+        ads_insert = [{'owner': new_campaign, 'ad_id': ad_id, 'ad_name': ad_names[ad_id], 'playlist_url': playlist_url}
                       for ad_id, playlist_url in ads.items()]
         UserCampaignDetails.insert_many(ads_insert).on_conflict_replace().execute()
 
@@ -507,6 +520,7 @@ class TargetingManager:
         # Запускает тест, получает айди объявлений и новой кампании
         self.Assistant.start_test()
         ads = self.Assistant.ads
+        ad_names = self.Assistant.ad_names
         campaign_id = self.Assistant.campaign_id
         campaign_name = f'{artist_name.upper()} / {track_name}'
 
@@ -517,7 +531,7 @@ class TargetingManager:
         self.client_campaigns[client_cabinet].append(new_campaign)
 
         # Создает детализацию новой кампании в базе данных
-        ads_insert = [{'owner': new_campaign, 'ad_id': ad_id, 'playlist_url': playlist_url}
+        ads_insert = [{'owner': new_campaign, 'ad_id': ad_id, 'ad_name': ad_names[ad_id], 'playlist_url': playlist_url}
                       for ad_id, playlist_url in ads.items()]
         ClientCampaignDetails.insert_many(ads_insert).on_conflict_replace().execute()
 
@@ -556,7 +570,7 @@ class TargetingManager:
 
         # Получение объявлений и кабинета из базы данных для продолжения кампании
         campaign_name = f'{artist_name.upper()} / {track_name}'
-        ads = self._ads_from_db_for_continue_campaign(cabinet_type, campaign_name)
+        ads, ad_names = self._ads_from_db_for_continue_campaign(cabinet_type, campaign_name)
         cabinet, campaign = self._cabinet_id_for_continue_campaign(cabinet_type, campaign_name)
 
         # Инициализация ассистента
@@ -570,6 +584,60 @@ class TargetingManager:
                                             artist_group_id=campaign.artist_group,
                                             fake_group_id=campaign.fake_group)
         self.Assistant.ads = ads
+        self.Assistant.ad_names = ad_names
 
+    def get_ads_stat(self):
+        """
+        Возвращает стату по объявлениям в виде
+        {ad_id: {'name': str, 'spent': float, 'reach': int, 'listens': int}}
+
+        """
+        return self.Assistant.get_ads_stat()
+    
+    def start_ads(self, ad_ids):
+        """
+        Запуск объявлений
+
+        :param ad_ids:      list of int - список айди объявлений
+
+        """
+        self.Assistant.start_ads(ad_ids)
+
+    def stop_ads(self, ad_ids):
+        """
+        Запуск объявлений
+
+        :param ad_ids:      list of int - список айди объявлений
+
+        """
+        self.Assistant.stop_ads(ad_ids)
+
+    def delete_ads(self, ad_ids):
+        """
+        Удаляет обявления по их айди из кабинета и аргумента ads.
+
+        :param ad_ids:      list of int - список айди объявлений
+
+        """
+        self.Assistant.delete_ads(ad_ids)
+
+    def unlimit_ads(self, ad_ids):
+        """
+        Убирает лимиты с объявлений после теста.
+        Лучше снимать лимиты только с объявлений, прошедших тест.
+
+        :param ad_ids:      list of int - список айди объявлений
+
+        """
+        self.Assistant.unlimit_ads(ad_ids)
+
+    def update_cpm(self, cpm_dict):
+        """
+        Обновляет СРМ у объявлений
+
+        :param cpm_dict:        dict - {ad_id: cpm}, cpm - float в рублях с копейками после точки
+
+        """
+        self.Assistant.update_cpm(cpm_dict)
 
 # TODO  Добавить ожидание появления кликабельных элемнтов в VkGroupAudio
