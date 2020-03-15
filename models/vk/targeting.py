@@ -5,7 +5,7 @@ from models.database import *
 from models.vk.tools import get_token_and_user_id
 
 
-class MusicTargetingAssistant:
+class TargetingAssistant:
     """
     Фреймворк для простой работы с классом VkAds.
     Делает всю черновую работу, но не умеет принимать решений.
@@ -57,7 +57,7 @@ class MusicTargetingAssistant:
                                 (по умолчанию - False)
 
     """
-    def __init__(self, user_id, login, password, token, artist_name, track_name, artist_group_id, cabinet_id,
+    def __init__(self, user_id, login, password, token, artist_name, track_name, artist_group_id=None, cabinet_id=None,
                  client_id=None, fake_group_id=None, cover_path=None, citation=None, campaign_budget=0,
                  music_interest_filter=False):
 
@@ -137,7 +137,7 @@ class MusicTargetingAssistant:
                 {post_url: playlist_url}
             3 - создает новую кампанию в кабинете и добавляет ее айди в аргумент campaign_id в виде int
             4 - создает объявления с дарк постами и добавляет их в аргумент ads в виде
-                {ad_id: playlist_url}
+                {ad_id: playlist_url} и его же возвращает
 
             Созданные объявления запускаются автоматически и после прохождения модерации крутятся
             до лимита 100 рублей каждое.
@@ -246,7 +246,7 @@ class MusicTargetingAssistant:
         print(f'Обновлен СРМ у {len(cpm_dict)} объявлений')
 
 
-class MusicTargetingManager:
+class TargetingManager:
 
     def __init__(self, login, password):
         self.user = self._check_account(login, password)
@@ -356,7 +356,7 @@ class MusicTargetingManager:
                 clients_list = []
                 for cl_name, cl_id in client_cabinets_vk.items():
                     if cl_id not in [x.cabinet_id for x in client_cabinets_db] or len(client_cabinets_db) == 0:
-                        cl_cab = ClientCabinets.create(owner=agency, client_id=cl_id, client_name=cl_name)
+                        cl_cab = ClientCabinets.create(owner=agency, cabinet_id=cl_id, cabinet_name=cl_name)
                         clients_list.append(cl_cab)
                 agency_clients[agency] = clients_list
             # А если нет, то берутся кабинеты из БД
@@ -429,6 +429,147 @@ class MusicTargetingManager:
             campaign_details[campaign] = details
         return campaign_details
 
+    def _ads_from_db_for_continue_campaign(self, cabinet_type, campaign_name):
+        # Достаем объявления из базы данных, если кампания находится в пользовательском кабинете
+        if cabinet_type == 'user':
+            campaign = UserCampaigns.select().where(UserCampaigns.campaign_name == campaign_name)
+            ads = {x.ad_id: x.playlist_url for x in
+                   UserCampaignDetails.select().where(UserCampaignDetails.owner == campaign)}
+            return ads
 
-# TODO  Наделать ретурнов методам ассистента, чтобы менеджер мог ими нормально пользоваться
+        # Достаем объявления из базы данных, если кампания находится в клиентском кабинете
+        elif cabinet_type == 'client':
+            campaign = ClientCampaigns.select().where(ClientCampaigns.campaign_name == campaign_name)
+            ads = {x.ad_id: x.playlist_url for x in
+                   ClientCampaignDetails.select().where(ClientCampaignDetails.owner == campaign)}
+            return ads
+        else:
+            raise ValueError("cabinet_type может быть только 'user' или 'client'")
 
+    def _cabinet_id_for_continue_campaign(self, cabinet_type, campaign_name):
+        if cabinet_type == 'user':
+            campaign = [x for x in UserCampaigns.select().where(UserCampaigns.campaign_name == campaign_name)][0]
+            cabinet = UserCabinets.get_by_id(campaign.owner)
+            return cabinet, campaign
+        elif cabinet_type == 'client':
+            campaign = [x for x in ClientCampaigns.select().where(ClientCampaigns.campaign_name == campaign_name)][0]
+            client_cabinet = ClientCabinets.get_by_id(campaign.owner)
+            cabinet = AgencyCabinets.get_by_id(client_cabinet.owner)
+            return cabinet, campaign
+
+    def _new_user_campaign(self, artist_group_id, artist_name, cabinet, campaign_budget, citation, cover_path,
+                           music_interest_filter, track_name):
+        # Инициализирует ассистента для работы с личным кабинетом
+        self.Assistant = TargetingAssistant(user_id=self.user.user_id,
+                                            login=self.user.login,
+                                            password=self.user.password,
+                                            token=self.user.token,
+                                            artist_name=artist_name,
+                                            track_name=track_name,
+                                            artist_group_id=artist_group_id,
+                                            cabinet_id=cabinet.cabinet_id,
+                                            cover_path=cover_path,
+                                            citation=citation,
+                                            campaign_budget=campaign_budget,
+                                            music_interest_filter=music_interest_filter)
+        # Запускает тест, получает айди объявлений и новой кампании
+        self.Assistant.start_test()
+        ads = self.Assistant.ads
+        campaign_id = self.Assistant.campaign_id
+        campaign_name = f'{artist_name.upper()} / {track_name}'
+
+        # Создает новую кампанию в базе данных
+        new_campaign = UserCampaigns.create(owner=cabinet, campaign_id=campaign_id, campaign_name=campaign_name,
+                                            artist_group=artist_group_id, fake_group=self.Assistant.fake_group_id)
+        self.user_campaigns[cabinet].append(new_campaign)
+
+        # Создает детализацию новой кампании в базе данных
+        ads_insert = [{'owner': new_campaign, 'ad_id': ad_id, 'playlist_url': playlist_url}
+                      for ad_id, playlist_url in ads.items()]
+        UserCampaignDetails.insert_many(ads_insert).on_conflict_replace().execute()
+
+    def _new_client_campaign(self, agency_cabinet, artist_group_id, artist_name, campaign_budget, citation,
+                             client_cabinet, cover_path, music_interest_filter, track_name):
+        # Инициализирует ассистента для работы с клиентским кабинетом
+        self.Assistant = TargetingAssistant(user_id=self.user.user_id,
+                                            login=self.user.login,
+                                            password=self.user.password,
+                                            token=self.user.token,
+                                            artist_name=artist_name,
+                                            track_name=track_name,
+                                            artist_group_id=artist_group_id,
+                                            cabinet_id=agency_cabinet.cabinet_id,
+                                            client_id=client_cabinet.cabinet_id,
+                                            cover_path=cover_path,
+                                            citation=citation,
+                                            campaign_budget=campaign_budget,
+                                            music_interest_filter=music_interest_filter)
+        # Запускает тест, получает айди объявлений и новой кампании
+        self.Assistant.start_test()
+        ads = self.Assistant.ads
+        campaign_id = self.Assistant.campaign_id
+        campaign_name = f'{artist_name.upper()} / {track_name}'
+
+        # Создает новую кампанию в базе данных
+        new_campaign = ClientCampaigns.create(owner=client_cabinet, campaign_id=campaign_id,
+                                              campaign_name=campaign_name, artist_group=artist_group_id,
+                                              fake_group=self.Assistant.fake_group_id)
+        self.client_campaigns[client_cabinet].append(new_campaign)
+
+        # Создает детализацию новой кампании в базе данных
+        ads_insert = [{'owner': new_campaign, 'ad_id': ad_id, 'playlist_url': playlist_url}
+                      for ad_id, playlist_url in ads.items()]
+        ClientCampaignDetails.insert_many(ads_insert).on_conflict_replace().execute()
+
+    def start_new_campaign(self, artist_name, track_name, artist_group_id, cover_path=None, citation=None,
+                           user_cabinet_name=None, agency_cabinet_name=None, client_cabinet_name=None,
+                           music_interest_filter=False, campaign_budget=0):
+
+        # Достает личный кабинет, если передано название личного кабинета
+        if user_cabinet_name:
+            for x in self.user_cabinets:
+                if x.cabinet_name == user_cabinet_name:
+                    cabinet = x
+                else:
+                    raise ValueError(f'У этого пользователя нет кабинета с названием {user_cabinet_name}')
+            # Запускает новую кампанию в личном кабинете
+            self._new_user_campaign(artist_group_id, artist_name, cabinet, campaign_budget, citation, cover_path,
+                                    music_interest_filter, track_name)
+
+        # Достает агентский и клиентский кабинеты
+        elif agency_cabinet_name and client_cabinet_name:
+            for x in self.agency_cabinets:
+                if x.cabinet_name == agency_cabinet_name:
+                    agency_cabinet = x
+                    for y in self.client_cabinets[agency_cabinet]:
+                        if y.cabinet_name == client_cabinet_name:
+                            client_cabinet = y
+                        else:
+                            raise ValueError(f'У агентсва {agency_cabinet_name} нет клиента {client_cabinet_name}')
+                else:
+                    raise ValueError(f'У этого пользователя нет агентского кабинета {agency_cabinet_name}')
+            # Запускает новую кампанию в агентском кабинете
+            self._new_client_campaign(agency_cabinet, artist_group_id, artist_name, campaign_budget, citation,
+                                      client_cabinet, cover_path, music_interest_filter, track_name)
+
+    def continue_campaign(self, artist_name, track_name, cabinet_type='user'):
+
+        # Получение объявлений и кабинета из базы данных для продолжения кампании
+        campaign_name = f'{artist_name.upper()} / {track_name}'
+        ads = self._ads_from_db_for_continue_campaign(cabinet_type, campaign_name)
+        cabinet, campaign = self._cabinet_id_for_continue_campaign(cabinet_type, campaign_name)
+
+        # Инициализация ассистента
+        self.Assistant = TargetingAssistant(user_id=self.user.user_id,
+                                            login=self.user.login,
+                                            password=self.user.password,
+                                            token=self.user.token,
+                                            artist_name=artist_name,
+                                            track_name=track_name,
+                                            cabinet_id=cabinet.cabinet_id,
+                                            artist_group_id=campaign.artist_group,
+                                            fake_group_id=campaign.fake_group)
+        self.Assistant.ads = ads
+
+
+# TODO  Добавить ожидание появления кликабельных элемнтов в VkGroupAudio

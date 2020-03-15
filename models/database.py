@@ -32,8 +32,8 @@ class AgencyCabinets(Model):
 
 class ClientCabinets(Model):
     owner = ForeignKeyField(AgencyCabinets, related_name='agency_clients')
-    client_id = IntegerField(unique=True)
-    client_name = CharField()
+    cabinet_id = IntegerField(unique=True)
+    cabinet_name = CharField()
 
     class Meta:
         database = DB
@@ -43,6 +43,8 @@ class UserCampaigns(Model):
     owner = ForeignKeyField(UserCabinets, related_name='cabinet_campaigns')
     campaign_id = IntegerField(unique=True)
     campaign_name = CharField()
+    artist_group = CharField()
+    fake_group = CharField()
 
     class Meta:
         database = DB
@@ -52,6 +54,8 @@ class ClientCampaigns(Model):
     owner = ForeignKeyField(ClientCabinets, related_name='client_campaigns')
     campaign_id = IntegerField(unique=True)
     campaign_name = CharField()
+    artist_group = CharField()
+    fake_group = CharField()
 
     class Meta:
         database = DB
@@ -61,7 +65,6 @@ class UserCampaignDetails(Model):
     owner = ForeignKeyField(UserCampaigns, related_name='user_campaigns')
     ad_id = IntegerField(unique=True)
     playlist_url = CharField()
-
 
     class Meta:
         database = DB
