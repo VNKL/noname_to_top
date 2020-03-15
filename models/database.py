@@ -64,6 +64,7 @@ class ClientCampaigns(Model):
 class UserCampaignDetails(Model):
     owner = ForeignKeyField(UserCampaigns, related_name='user_campaigns')
     ad_id = IntegerField(unique=True)
+    ad_name = CharField()
     playlist_url = CharField()
 
     class Meta:
@@ -73,6 +74,7 @@ class UserCampaignDetails(Model):
 class ClientCampaignDetails(Model):
     owner = ForeignKeyField(ClientCampaigns, related_name='client_campaign')
     ad_id = IntegerField(unique=True)
+    ad_name = CharField()
     playlist_url = CharField()
 
     class Meta:
