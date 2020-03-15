@@ -593,7 +593,7 @@ class TargetingManager:
 
         """
         return self.Assistant.get_ads_stat()
-    
+
     def start_ads(self, ad_ids):
         """
         Запуск объявлений
