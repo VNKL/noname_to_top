@@ -66,6 +66,7 @@ class UserCampaignDetails(Model):
     ad_id = IntegerField(unique=True)
     ad_name = CharField()
     playlist_url = CharField()
+    tested = IntegerField()
 
     class Meta:
         database = DB
@@ -76,6 +77,7 @@ class ClientCampaignDetails(Model):
     ad_id = IntegerField(unique=True)
     ad_name = CharField()
     playlist_url = CharField()
+    tested = IntegerField()
 
     class Meta:
         database = DB
