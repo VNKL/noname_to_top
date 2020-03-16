@@ -591,6 +591,28 @@ class VkAdsBackend:
 
         return ads_stats
 
+    def get_campaign_stat(self, cabinet_id, campaign_id):
+        """
+        Возвращает стату по кампании
+
+        :param cabinet_id:      int - айди кабинета (пользовательского или агентского)
+        :param campaign_id:     int - айди кампании
+
+        :return:                dict - {campaign_id: {'spent': spent, 'reach': reach}}
+
+        """
+        url = f'https://api.vk.com/method/ads.getStatistics?&ids_type=campaign&period=overall&date_from=0&date_to=0&' \
+              f'account_id={cabinet_id}&' \
+              f'ids={campaign_id}&' \
+              f'access_token={self.token}&v=5.103'
+        resp = self.session.get(url).json()
+
+        campaign_stat = {}
+        stat = resp['response'][0]['stats'][0]
+        temp = {'spent': stat['spent'], 'reach': stat['impressions']}
+        campaign_stat[campaign_id] = temp
+        return campaign_stat
+
     def get_listens(self, group_id, playlist_name):
         """
         Получение количества прослушиваний плейлистов в паблике на текущий момент
