@@ -7,8 +7,8 @@ from models.vk.tools import get_token_and_user_id
 
 class TargetingAssistant:
     """
-    Фреймворк для простой работы с классом VkAds.
-    Делает всю черновую работу, но не умеет принимать решений.
+    Класс для простой работы с VkAdsBackend.
+    Упрощает черновую работу c VK API и созданием плейлистов.
 
 
     Параметры:
@@ -71,8 +71,8 @@ class TargetingAssistant:
         self.login = login
         self.password = password
         self.token = token
-        self.Vk = VkAdsBackend(self.login, self.password, self.token)
-        self.retarget = self.Vk.get_retarget(self.cabinet_id, self.client_id)
+        self.Backend = VkAdsBackend(self.login, self.password, self.token)
+        self.retarget = self.Backend.get_retarget(self.cabinet_id, self.client_id)
         self.fake_group_id = self.__check_group_id(fake_group_id)
         self.cover_path = cover_path
         self.playlist_urls = []
@@ -85,7 +85,7 @@ class TargetingAssistant:
 
     def __check_group_id(self, group_id):
         if group_id is None:
-            return self.Vk.create_group(group_name=self.artist_name, user_id=self.user_id)
+            return self.Backend.create_group(group_name=self.artist_name, user_id=self.user_id)
         else:
             return group_id
 
@@ -123,11 +123,11 @@ class TargetingAssistant:
 
         """
         # Добавление трека в аудиозаписи группы
-        self.Vk.add_audio_in_group(group_id=self.fake_group_id,
-                                   track_name=f'{self.artist_name} - {self.track_name}')
+        self.Backend.add_audio_in_group(group_id=self.fake_group_id,
+                                        track_name=f'{self.artist_name} - {self.track_name}')
         # Создание плейлистов
-        self.playlist_urls = self.Vk.create_playlists(group_id=self.fake_group_id, playlist_name=self.track_name,
-                                                      cover_path=self.cover_path, count=len(self.retarget))
+        self.playlist_urls = self.Backend.create_playlists(group_id=self.fake_group_id, playlist_name=self.track_name,
+                                                           cover_path=self.cover_path, count=len(self.retarget))
 
     def start_test(self):
         """
@@ -149,21 +149,21 @@ class TargetingAssistant:
             self.create_playlists()
 
         # Создание дарк-постов
-        self.dark_posts = self.Vk.create_dark_posts(group_id=self.artist_group_id,
-                                                    playlists=self.playlist_urls,
-                                                    text=self.post_text)
+        self.dark_posts = self.Backend.create_dark_posts(group_id=self.artist_group_id,
+                                                         playlists=self.playlist_urls,
+                                                         text=self.post_text)
         # Создание новой кампании в кабинете
-        self.campaign_id = self.Vk.create_campaign(cabinet_id=self.cabinet_id, client_id=self.client_id,
-                                                   campaign_name=f'{self.artist_name.upper()} / {self.track_name}',
-                                                   money_limit=self.campaign_budget)
+        self.campaign_id = self.Backend.create_campaign(cabinet_id=self.cabinet_id, client_id=self.client_id,
+                                                        campaign_name=f'{self.artist_name.upper()} / {self.track_name}',
+                                                        money_limit=self.campaign_budget)
         # Создание объявлений
-        ads = self.Vk.create_ads(cabinet_id=self.cabinet_id, client_id=self.client_id,
-                                 campaign_id=self.campaign_id,
-                                 retarget=self.retarget,
-                                 posts=list(self.dark_posts.keys()),
-                                 music=self.music_interest_filter)
+        ads = self.Backend.create_ads(cabinet_id=self.cabinet_id, client_id=self.client_id,
+                                      campaign_id=self.campaign_id,
+                                      retarget=self.retarget,
+                                      posts=list(self.dark_posts.keys()),
+                                      music=self.music_interest_filter)
         self.ads = {ad_id: self.dark_posts[post_url] for ad_id, post_url in ads.items()}
-        self.ad_names = self.Vk.ad_names
+        self.ad_names = self.Backend.ad_names
 
         print('Объявления созданы и отправлены на модерацию')
 
@@ -178,9 +178,9 @@ class TargetingAssistant:
             raise RuntimeError('self.ads пуст, сперва создай объявления, запустив start_test')
 
         # Получение статы объявлений и прослушиваний с плейлистов
-        ads_stat = self.Vk.get_ads_stat(cabinet_id=self.cabinet_id, ad_ids=list(self.ads.keys()),
-                                        ad_names=self.ad_names)
-        listens = self.Vk.get_listens(group_id=self.fake_group_id, playlist_name=self.track_name)
+        ads_stat = self.Backend.get_ads_stat(cabinet_id=self.cabinet_id, ad_ids=list(self.ads.keys()),
+                                             ad_names=self.ad_names)
+        listens = self.Backend.get_listens(group_id=self.fake_group_id, playlist_name=self.track_name)
 
         # Объединение статы объявлений и прослушиваний плейлистов
         full_stat = {}
@@ -192,6 +192,35 @@ class TargetingAssistant:
 
         return full_stat
 
+    def get_campaign_stat(self):
+        """
+        Возвращает стату по кампании
+
+        :return:                dict - {campaign_id: {'spent': spent, 'reach': reach}}
+
+        """
+        return self.Backend.get_campaign_stat(cabinet_id=self.cabinet_id, campaign_id=self.campaign_id)
+
+    def stop_ads(self, ad_ids):
+        """
+        Останавливает объявления.
+
+        :param ad_ids:      list of int - список айди объявлений
+
+        """
+        self.Backend.stop_ads(cabinet_id=self.cabinet_id, ad_ids=ad_ids)
+        print(f'Остановлено {len(ad_ids)} объявлений')
+
+    def start_ads(self, ad_ids):
+        """
+        Запуск объявлений
+
+        :param ad_ids:      list of int - список айди объявлений
+
+        """
+        self.Backend.start_ads(cabinet_id=self.cabinet_id, ad_ids=ad_ids)
+        print(f'Запущено {len(ad_ids)} объявлений')
+
     def delete_ads(self, ad_ids):
         """
         Удаляет обявления по их айди из кабинета и аргумента ads.
@@ -199,7 +228,7 @@ class TargetingAssistant:
         :param ad_ids:      list of int - список айди объявлений
 
         """
-        self.Vk.delete_ads(cabinet_id=self.cabinet_id, ad_ids=ad_ids)
+        self.Backend.delete_ads(cabinet_id=self.cabinet_id, ad_ids=ad_ids)
         alive_ads = {}
         for ad_id, playlist_url in self.ads.items():
             if ad_id not in ad_ids:
@@ -215,28 +244,8 @@ class TargetingAssistant:
         :param ad_ids:      list of int - список айди объявлений
 
         """
-        self.Vk.limit_ads(cabinet_id=self.cabinet_id, ad_ids=ad_ids, limit=0)
+        self.Backend.limit_ads(cabinet_id=self.cabinet_id, ad_ids=ad_ids, limit=0)
         print(f'Сняты лимиты по бюджету с {len(ad_ids)} объявлений')
-
-    def stop_ads(self, ad_ids):
-        """
-        Останавливает объявления.
-
-        :param ad_ids:      list of int - список айди объявлений
-
-        """
-        self.Vk.stop_ads(cabinet_id=self.cabinet_id, ad_ids=ad_ids)
-        print(f'Остановлено {len(ad_ids)} объявлений')
-
-    def start_ads(self, ad_ids):
-        """
-        Запуск объявлений
-
-        :param ad_ids:      list of int - список айди объявлений
-
-        """
-        self.Vk.start_ads(cabinet_id=self.cabinet_id, ad_ids=ad_ids)
-        print(f'Запущено {len(ad_ids)} объявлений')
 
     def update_cpm(self, cpm_dict):
         """
@@ -245,12 +254,67 @@ class TargetingAssistant:
         :param cpm_dict:        dict - {ad_id: cpm}, cpm - float в рублях с копейками после точки
 
         """
-        self.Vk.update_cpm(cabinet_id=self.cabinet_id, cpm_dict=cpm_dict)
+        self.Backend.update_cpm(cabinet_id=self.cabinet_id, cpm_dict=cpm_dict)
         print(f'Обновлен СРМ у {len(cpm_dict)} объявлений')
 
 
-class TargetingManager:
 
+
+class TargetingManager:
+    """
+    Высокоуровневый фреймворк для работы с VK API и созданием плейлистов.
+    Работает с базой данных, архивируя в нее все необходимое для продолжения кампаний
+    после различных факапов
+
+
+    Параметры при инициализации класса:
+
+        login - str или int, логин от ВК аккаунта, у аккаунта должен быть доступ к админке
+                паблика артиста, из которого будет запускаться кампания
+
+        password - str, пароль от ВК аккаунта
+
+
+    Параметры основных методов:
+
+        artist_name - str, имя артиста, будет использовано для создания фейк-паблика,
+                      поиска трека и названия рекламной кампании
+
+        track_name - str, название трека, будет использовано для поиска трека,
+                     названия плейлистов и рекламной кампании
+
+        artist_group_id - int, айди официального паблика артиста, будет использован
+                          для создания дарк-постов
+
+        cover_path - str, путь к изображению, которое будет использовано как обложка плейлистов
+                     (если не передавать, подтянется официальная обложка трека)
+
+        citation - str, цитата из трека, будет использована в тексте дарк-постов
+                   (если не передавать, будет сгенерирован стандартный текст без цитаты)
+
+        campaign_budget - int, лимит по бюджету создаваемой рекламной кампании в рублях
+                          (если не передавать, кампания не будет иметь такого ограничения)
+
+        music_interest_filter - если True, в объявлениях будет ограничение по интересу "музыка",
+                                если False, то этого ограничения в объявлениях не будет
+                                (по умолчанию - False)
+
+        user_cabinet_name - str, название пользовательского кабинета, в котором будет запускаться кампания
+
+        agency_cabinet_name - str, название агентского кабинета, в клиенте которого будет запускаться кампания
+                              (при этом необходимо указать в соседнем параметре название клиентского кабинета)
+
+        client_cabinet_name - str, название клиентского кабинета, в котором будет запускаться кампания
+                              (необходимо также указать в соседнем параметре название агентского кабинета)
+
+        cabinet_type - str, 'user' или 'client'
+
+        ad_ids - list of int, список айди объявлений, над которыми будет произведено действие
+
+        cpm_dict - {ad_id: cpm}, cpm - float в рублях с копейками после точки
+
+
+    """
     def __init__(self, login, password):
         self.user = self._check_account(login, password)
         self.Backend = VkAdsBackend(self.user.login, self.user.password, self.user.token)
@@ -585,6 +649,7 @@ class TargetingManager:
                                             fake_group_id=campaign.fake_group)
         self.Assistant.ads = ads
         self.Assistant.ad_names = ad_names
+        self.Assistant.campaign_id = campaign.campaign_id
 
     def get_ads_stat(self):
         """
@@ -593,6 +658,15 @@ class TargetingManager:
 
         """
         return self.Assistant.get_ads_stat()
+
+    def get_campaign_stat(self):
+        """
+        Возвращает стату по кампании
+
+        :return:                dict - {campaign_id: {'spent': spent, 'reach': reach}}
+
+        """
+        return self.Assistant.get_campaign_stat()
 
     def start_ads(self, ad_ids):
         """
@@ -639,5 +713,7 @@ class TargetingManager:
 
         """
         self.Assistant.update_cpm(cpm_dict)
+
+
 
 # TODO  Добавить ожидание появления кликабельных элемнтов в VkGroupAudio
