@@ -40,7 +40,7 @@ class Calculator:
         self.stop_cost = stop_cost
         self.cpm_step = cpm_step
 
-    def updates_for_rate_target(self, ads_stat):
+    def updates_for_target_rate(self, ads_stat):
         """
         Возвращает новые CPM для объявлений + список объявлений, которые нужно остановить,
         выполняя цель по конверсии из охвата в прослушивания
@@ -79,7 +79,7 @@ class Calculator:
 
         return cpm_dict, stop_ads
 
-    def updates_for_cost_target(self, ads_stat):
+    def updates_for_target_cost(self, ads_stat):
         """
         Возвращает новые CPM для объявлений + список объявлений, которые нужно остановить,
         выполняя цель по стоимости одного прослушивания
@@ -118,6 +118,40 @@ class Calculator:
 
         return cpm_dict, stop_ads
 
+    def updates_for_reach_speed(self, ads_stat, faster=True):
+        """
+        Возвращает новые CPM для объявлений, соответствуя цели ускорить/замедлить кампанию
 
+        :param ads_stat:    dict - {ad_id: {'name': str, 'spent': float, 'reach': int, 'cpm': cpm}}
+        :param faster       True - ускоряет кампанию, возвращая увеличенные CPM
+                            False - замедляет кампанию, возвращая пониженные CPM
 
+        :return:            {ad_id: new_cpm}
+
+        """
+        # Получает текущие стоимости прослушиваний
+        current_costs = listens_cost(ads_stat)
+
+        cpm_dict = {}
+
+        if faster is True:
+            for ad_id, current_cost in current_costs.items():
+                current_cpm = ads_stat[ad_id]['cpm']
+                cpm_delta = (self.target_cost / current_cost) * 10.
+                cpm_dict[ad_id] = current_cpm + cpm_delta
+                self.target_cost += cpm_delta / 40.
+                self.stop_cost += cpm_delta / 40.
+
+        elif faster is False:
+            for ad_id, current_cost in current_costs.items():
+                current_cpm = ads_stat[ad_id]['cpm']
+                cpm_delta = (self.target_cost / current_cost) * 10.
+                if current_cpm - cpm_delta > 30.:
+                    cpm_dict[ad_id] = current_cpm - cpm_delta
+                else:
+                    cpm_dict[ad_id] = 30.
+                self.target_cost -= cpm_delta / 50.
+                self.stop_cost -= cpm_delta / 50.
+
+        return cpm_dict
 
