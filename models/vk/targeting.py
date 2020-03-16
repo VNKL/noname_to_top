@@ -542,24 +542,33 @@ class TargetingManager:
             time.sleep(300)
             time_now = datetime.datetime.now()
 
-    def _ads_from_db_for_continue_campaign(self, cabinet_type, campaign_name):
+    def _ads_from_db_for_continue_campaign(self, cabinet_type, campaign_name, tested):
+
+        if tested is True:
+            tstd = 1
+        else:
+            tstd = 0
 
         # Достаем объявления из базы данных, если кампания находится в пользовательском кабинете
         if cabinet_type == 'user':
             campaign = UserCampaigns.select().where(UserCampaigns.campaign_name == campaign_name)
             ads = {x.ad_id: x.playlist_url for x in
-                   UserCampaignDetails.select().where(UserCampaignDetails.owner == campaign)}
+                   UserCampaignDetails.select().where(UserCampaignDetails.owner == campaign and
+                                                      UserCampaignDetails.tested == tstd)}
             ad_names = {x.ad_id: x.ad_name for x in
-                        UserCampaignDetails.select().where(UserCampaignDetails.owner == campaign)}
+                        UserCampaignDetails.select().where(UserCampaignDetails.owner == campaign and
+                                                           UserCampaignDetails.tested == tstd)}
             return ads, ad_names
 
         # Достаем объявления из базы данных, если кампания находится в клиентском кабинете
         elif cabinet_type == 'client':
             campaign = ClientCampaigns.select().where(ClientCampaigns.campaign_name == campaign_name)
             ads = {x.ad_id: x.playlist_url for x in
-                   ClientCampaignDetails.select().where(ClientCampaignDetails.owner == campaign)}
+                   ClientCampaignDetails.select().where(ClientCampaignDetails.owner == campaign and
+                                                        ClientCampaignDetails.tested == tstd)}
             ad_names = {x.ad_id: x.ad_name for x in
-                        ClientCampaignDetails.select().where(ClientCampaignDetails.owner == campaign)}
+                        ClientCampaignDetails.select().where(ClientCampaignDetails.owner == campaign and
+                                                             ClientCampaignDetails == tstd)}
             return ads, ad_names
         else:
             raise ValueError("cabinet_type может быть только 'user' или 'client'")
@@ -607,9 +616,25 @@ class TargetingManager:
         self.user_campaigns[cabinet].append(new_campaign)
 
         # Создает детализацию новой кампании в базе данных
-        ads_insert = [{'owner': new_campaign, 'ad_id': ad_id, 'ad_name': ad_names[ad_id], 'playlist_url': playlist_url}
+        ads_insert = [{'owner': new_campaign, 'ad_id': ad_id, 'ad_name': ad_names[ad_id], 'playlist_url': playlist_url,
+                       'tested': 0}
                       for ad_id, playlist_url in ads.items()]
         UserCampaignDetails.insert_many(ads_insert).on_conflict_replace().execute()
+
+        # Ожидание прохождения тестов и запись объявлений в базу данных
+        self._wait_moderation()
+        good_ads = self._clean_after_test()
+        ads_tested = {ad_id: playlist_url for ad_id, playlist_url in ads.items() if ad_id in good_ads}
+        ads_insert = [{'owner': new_campaign, 'ad_id': ad_id, 'ad_name': ad_names[ad_id], 'playlist_url': playlist_url,
+                       'tested': 1} for ad_id, playlist_url in ads_tested.items()]
+        UserCampaignDetails.insert_many(ads_insert).on_conflict_replace().execute()
+
+        print(f'Успешно прошли тест {len(good_ads)} объявлений:')
+        ads_stat = self.get_ads_stat()
+        for k, v in ads_stat.items():
+            print(k, v)
+
+        self.automate_campaign(tested=True)
 
     def _new_client_campaign(self, agency_cabinet, artist_group_id, artist_name, campaign_budget, citation,
                              client_cabinet, cover_path, music_interest_filter, track_name):
@@ -641,9 +666,24 @@ class TargetingManager:
         self.client_campaigns[client_cabinet].append(new_campaign)
 
         # Создает детализацию новой кампании в базе данных
-        ads_insert = [{'owner': new_campaign, 'ad_id': ad_id, 'ad_name': ad_names[ad_id], 'playlist_url': playlist_url}
-                      for ad_id, playlist_url in ads.items()]
+        ads_insert = [{'owner': new_campaign, 'ad_id': ad_id, 'ad_name': ad_names[ad_id], 'playlist_url': playlist_url,
+                       'tested': 0} for ad_id, playlist_url in ads.items()]
         ClientCampaignDetails.insert_many(ads_insert).on_conflict_replace().execute()
+
+        # Ожидание прохождения тестов и запись объявлений в базу данных
+        self._wait_moderation()
+        good_ads = self._clean_after_test()
+        ads_tested = {ad_id: playlist_url for ad_id, playlist_url in ads.items() if ad_id in good_ads}
+        ads_insert = [{'owner': new_campaign, 'ad_id': ad_id, 'ad_name': ad_names[ad_id], 'playlist_url': playlist_url,
+                       'tested': 1} for ad_id, playlist_url in ads_tested.items()]
+        ClientCampaignDetails.insert_many(ads_insert).on_conflict_replace().execute()
+
+        print(f'Успешно прошли тест {len(good_ads)} объявлений:')
+        ads_stat = self.get_ads_stat()
+        for k, v in ads_stat.items():
+            print(k, v)
+
+        self.automate_campaign(tested=True)
 
     def start_new_campaign(self, artist_name, track_name, artist_group_id, cover_path=None, citation=None,
                            user_cabinet_name=None, agency_cabinet_name=None, client_cabinet_name=None,
@@ -676,11 +716,11 @@ class TargetingManager:
             self._new_client_campaign(agency_cabinet, artist_group_id, artist_name, campaign_budget, citation,
                                       client_cabinet, cover_path, music_interest_filter, track_name)
 
-    def continue_campaign(self, artist_name, track_name, cabinet_type='user'):
+    def continue_campaign(self, artist_name, track_name, cabinet_type='user', tested=True):
 
         # Получение объявлений и кабинета из базы данных для продолжения кампании
         campaign_name = f'{artist_name.upper()} / {track_name}'
-        ads, ad_names = self._ads_from_db_for_continue_campaign(cabinet_type, campaign_name)
+        ads, ad_names = self._ads_from_db_for_continue_campaign(cabinet_type, campaign_name, tested)
         cabinet, campaign, client_cabinet = self._cabinet_id_for_continue_campaign(cabinet_type, campaign_name)
 
         # Инициализация ассистента
@@ -762,7 +802,7 @@ class TargetingManager:
         self.Assistant.update_cpm(cpm_dict)
 
     def automate_campaign(self, target_rate=0.04, stop_rate=0.03, target_cost=1., stop_cost=1.5, cpm_step=10.,
-                          cpm_update_interval=1200):
+                          cpm_update_interval=1200, tested=True):
         """
         Метод для полной автоматизации кампании после запуска теста
 
@@ -772,6 +812,8 @@ class TargetingManager:
         :param stop_cost:               float - максимальная стоимость, выше которой объявление останавливается
         :param cpm_step:                float - шаг изменения CPM в рублях
         :param cpm_update_interval:     int - интервал обновления CPM в секундах
+        :param tested:                  True - автоматизируем кампанию, которая прошла тест в таргете
+                                        False - автоматизируем кампанию, которая еще не прошла тест в таргете
 
         :return:                        dict - итоговая стата по всем объявлениям через час после остановки кампании
 
@@ -779,18 +821,23 @@ class TargetingManager:
         # Инициализация калькулятора
         self.Calculator = CPMCalculator(target_rate=target_rate, stop_rate=stop_rate,
                                         target_cost=target_cost, stop_cost=stop_cost, cpm_step=cpm_step)
-        # Ожидание прохождения тестов
-        self._wait_moderation()
-        good_ads = self._clean_after_test()
+        if tested:
+            # Ожидание прохождения тестов
+            self._wait_moderation()
+            good_ads = self._clean_after_test()
+        else:
+            good_ads = list(self.Assistant.ads.keys())
 
         # Установка параметров времени запуска и остановки основной части кампании
         today = datetime.datetime.combine(datetime.date.today(), datetime.datetime.min.time())
-        start_time = today + datetime.timedelta(days=1, hours=7)
-        end_time = today + datetime.timedelta(days=2)
-
-        # Ожидание наступления времени запуска основной части кампании и ее запуск
-        self._wait_campaign_start(start_time)
-        self.start_ads(good_ads)
+        if tested:
+            end_time = today + datetime.timedelta(days=1)
+        else:
+            start_time = today + datetime.timedelta(days=1, hours=7)
+            end_time = today + datetime.timedelta(days=2)
+            # Ожидание наступления времени запуска основной части кампании и ее запуск
+            self._wait_campaign_start(start_time)
+            self.start_ads(good_ads)
 
         # Обновление ставок СРМ каждые 20 минут, пока не подойдет время завершения кампании
         self._updating_cpm(cpm_update_interval, end_time)
