@@ -608,10 +608,17 @@ class VkAdsBackend:
         resp = self.session.get(url).json()
 
         campaign_stat = {}
-        stat = resp['response'][0]['stats'][0]
-        temp = {'spent': stat['spent'], 'reach': stat['impressions']}
-        campaign_stat[campaign_id] = temp
-        return campaign_stat
+        try:
+            stat = resp['response'][0]['stats'][0]
+            temp = {'spent': stat['spent'], 'reach': stat['impressions']}
+            campaign_stat[campaign_id] = temp
+            return campaign_stat
+        except IndexError:
+            temp = {'spent': 0, 'reach': 0}
+            campaign_stat[campaign_id] = temp
+            return campaign_stat
+        except KeyError:
+            print(resp)
 
     def get_listens(self, group_id, playlist_name):
         """
