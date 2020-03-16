@@ -3,6 +3,9 @@
 from models.vk.backend import VkAdsBackend
 from models.database import *
 from models.vk.tools import get_token_and_user_id
+from models.vk.tools import CPMCalculator
+import time
+import datetime
 
 
 class TargetingAssistant:
@@ -259,8 +262,6 @@ class TargetingAssistant:
         print(f'Обновлен СРМ у {len(cpm_dict)} объявлений')
 
 
-
-
 class TargetingManager:
     """
     Высокоуровневый фреймворк для работы с VK API и созданием плейлистов.
@@ -319,6 +320,7 @@ class TargetingManager:
     def __init__(self, login, password):
         self.user = self._check_account(login, password)
         self.Backend = VkAdsBackend(self.user.login, self.user.password, self.user.token)
+        self.Calculator = None
         self.Assistant = None
         self.user_cabinets = self._check_user_cabinets()
         self.agency_cabinets = self._check_agency_cabinets()
@@ -496,6 +498,49 @@ class TargetingManager:
             details = [x for x in ClientCampaignDetails.select().where(ClientCampaignDetails.owner == campaign)]
             campaign_details[campaign] = details
         return campaign_details
+
+    def _wait_moderation(self):
+        moderation = True
+        while moderation:
+            stat = self.get_ads_stat()
+            spents = [x['spent'] for x in stat.values()]
+            if all(spents) >= 100:
+                moderation = False
+            else:
+                time.sleep(1200)
+
+    def _clean_after_test(self):
+        # Удаление объявлений, не прошедших тест, снятие лимитов с объявлений, прошедших тест
+        ads_stat = self.get_ads_stat()
+        all_ads = ads_stat.keys()
+        fail_ads = self.Calculator.failed_ads(ads_stat)
+        good_ads = list(set(all_ads) - set(fail_ads))
+        time.sleep(1)
+        self.delete_ads(fail_ads)
+        time.sleep(1)
+        self.unlimit_ads(good_ads)
+        # Обновление словаря объявлений в ассистенте
+        ads = self.Assistant.ads
+        new_ads = {}
+        for ad in good_ads:
+            new_ads[ad] = ads[ad]
+        self.Assistant.ads = new_ads
+        return good_ads
+
+    def _updating_cpm(self, cpm_update_interval, end_time):
+        time_now = datetime.datetime.now()
+        while time_now < end_time:
+            time.sleep(cpm_update_interval)
+            ads_stat = self.get_ads_stat()
+            cpm_dict, stop_ads = self.Calculator.updates_for_target_cost(ads_stat)
+            self.update_cpm(cpm_dict)
+            self.stop_ads(stop_ads)
+
+    def _wait_campaign_start(self, start_time):
+        time_now = datetime.datetime.now()
+        while time_now < start_time:
+            time.sleep(300)
+            time_now = datetime.datetime.now()
 
     def _ads_from_db_for_continue_campaign(self, cabinet_type, campaign_name):
 
@@ -716,6 +761,45 @@ class TargetingManager:
         """
         self.Assistant.update_cpm(cpm_dict)
 
+    def automate_campaign(self, target_rate=0.04, stop_rate=0.03, target_cost=1., stop_cost=1.5, cpm_step=10.,
+                          cpm_update_interval=1200):
+        """
+        Метод для полной автоматизации кампании после запуска теста
 
+        :param target_rate:             float - целевая конверсия из охвата в прослушивания
+        :param stop_rate:               float - минимальная коверсия, ниже которой объявление останавливается
+        :param target_cost:             float - целевая стоимость одного прослушивания в рублях
+        :param stop_cost:               float - максимальная стоимость, выше которой объявление останавливается
+        :param cpm_step:                float - шаг изменения CPM в рублях
+        :param cpm_update_interval:     int - интервал обновления CPM в секундах
 
-# TODO  Добавить ожидание появления кликабельных элемнтов в VkGroupAudio
+        :return:                        dict - итоговая стата по всем объявлениям через час после остановки кампании
+
+        """
+        # Инициализация калькулятора
+        self.Calculator = CPMCalculator(target_rate=target_rate, stop_rate=stop_rate,
+                                        target_cost=target_cost, stop_cost=stop_cost, cpm_step=cpm_step)
+        # Ожидание прохождения тестов
+        self._wait_moderation()
+        good_ads = self._clean_after_test()
+
+        # Установка параметров времени запуска и остановки основной части кампании
+        today = datetime.datetime.combine(datetime.date.today(), datetime.datetime.min.time())
+        start_time = today + datetime.timedelta(days=1, hours=7)
+        end_time = today + datetime.timedelta(days=2)
+
+        # Ожидание наступления времени запуска основной части кампании и ее запуск
+        self._wait_campaign_start(start_time)
+        self.start_ads(good_ads)
+
+        # Обновление ставок СРМ каждые 20 минут, пока не подойдет время завершения кампании
+        self._updating_cpm(cpm_update_interval, end_time)
+
+        # Остановка активных объявлений
+        ads_stat = self.get_ads_stat()
+        self.stop_ads(list(ads_stat.keys()))
+
+        # Срез итоговой статы через час после остановки
+        time.sleep(3600)
+        return self.get_ads_stat()
+
