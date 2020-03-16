@@ -424,5 +424,18 @@ class CPMCalculator:
 
         return cpm_dict
 
+    def failed_ads(self, ads_stat):
 
+        # Получает текущие конверсии
+        current_rates = listens_rate(ads_stat)
+
+        stop_ads = []
+        for ad_id, current_rate in current_rates:
+            # Если текущая конверсия ниже целевой, то:
+            if current_rate < self.target_rate:
+                # Если она еще и ниже порога остановки, добавлет объявление в стоп-лист
+                if current_rate < self.stop_rate:
+                    stop_ads.append(ad_id)
+
+        return stop_ads
 
