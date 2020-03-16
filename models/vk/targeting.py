@@ -179,7 +179,8 @@ class TargetingAssistant:
 
         # Получение статы объявлений и прослушиваний с плейлистов
         ads_stat = self.Backend.get_ads_stat(cabinet_id=self.cabinet_id, ad_ids=list(self.ads.keys()),
-                                             ad_names=self.ad_names)
+                                             ad_names=self.ad_names, campaign_id=self.campaign_id,
+                                             client_id=self.client_id)
         listens = self.Backend.get_listens(group_id=self.fake_group_id, playlist_name=self.track_name)
 
         # Объединение статы объявлений и прослушиваний плейлистов
@@ -524,14 +525,14 @@ class TargetingManager:
         if cabinet_type == 'user':
             campaign = [x for x in UserCampaigns.select().where(UserCampaigns.campaign_name == campaign_name)][0]
             cabinet = UserCabinets.get_by_id(campaign.owner)
-            return cabinet, campaign
+            return cabinet, campaign, None
 
         # Если речь о клиентском кабинете
         elif cabinet_type == 'client':
             campaign = [x for x in ClientCampaigns.select().where(ClientCampaigns.campaign_name == campaign_name)][0]
             client_cabinet = ClientCabinets.get_by_id(campaign.owner)
             cabinet = AgencyCabinets.get_by_id(client_cabinet.owner)
-            return cabinet, campaign
+            return cabinet, campaign, client_cabinet
 
     def _new_user_campaign(self, artist_group_id, artist_name, cabinet, campaign_budget, citation, cover_path,
                            music_interest_filter, track_name):
@@ -635,7 +636,7 @@ class TargetingManager:
         # Получение объявлений и кабинета из базы данных для продолжения кампании
         campaign_name = f'{artist_name.upper()} / {track_name}'
         ads, ad_names = self._ads_from_db_for_continue_campaign(cabinet_type, campaign_name)
-        cabinet, campaign = self._cabinet_id_for_continue_campaign(cabinet_type, campaign_name)
+        cabinet, campaign, client_cabinet = self._cabinet_id_for_continue_campaign(cabinet_type, campaign_name)
 
         # Инициализация ассистента
         self.Assistant = TargetingAssistant(user_id=self.user.user_id,
@@ -645,6 +646,7 @@ class TargetingManager:
                                             artist_name=artist_name,
                                             track_name=track_name,
                                             cabinet_id=cabinet.cabinet_id,
+                                            client_id=client_cabinet.cabinet_id,
                                             artist_group_id=campaign.artist_group,
                                             fake_group_id=campaign.fake_group)
         self.Assistant.ads = ads

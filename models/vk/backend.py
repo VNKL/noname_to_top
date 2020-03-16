@@ -556,7 +556,7 @@ class VkAdsBackend:
             print(resp)
         return clients
 
-    def get_ads_stat(self, cabinet_id, ad_ids, ad_names):
+    def get_ads_stat(self, cabinet_id, campaign_id, ad_ids, ad_names, client_id=None):
         """
         Получаем необходимую стату с рекламных объявлений
 
@@ -577,17 +577,22 @@ class VkAdsBackend:
               f'access_token={self.token}&v=5.103'
         resp = self.session.get(url).json()
 
+        get_ads = self.get_ads(cabinet_id, campaign_id, client_id=client_id)
+
         ads_stats = {}
         for i in resp['response']:
             if i['stats']:
+                cpm = float(get_ads[i['id']]['cpm']) / 100
                 ads_stats[i['id']] = {'name': ad_names[i['id']],
                                       'spent': i['stats'][0]['spent'],
                                       'reach': i['stats'][0]['impressions'],
-                                      }
+                                      'cpm': cpm}
             else:
+                cpm = float(get_ads[i['id']]['cpm']) / 100
                 ads_stats[i['id']] = {'name': ad_names[i['id']],
                                       'spent': 0,
-                                      'reach': 0}
+                                      'reach': 0,
+                                      'cpm': cpm}
 
         return ads_stats
 
