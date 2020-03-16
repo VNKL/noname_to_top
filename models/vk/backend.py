@@ -933,3 +933,6 @@ class VkAdsBackend:
                   f'access_token={self.token}&v=5.103'
             resp = self.session.get(url).json()
             print(resp)
+
+
+# TODO  Добавить ожидание появления кликабельных элемнтов в VkGroupAudio
