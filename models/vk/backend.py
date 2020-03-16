@@ -561,10 +561,12 @@ class VkAdsBackend:
         Получаем необходимую стату с рекламных объявлений
 
         :param cabinet_id:      int - айди рекламного кабинета (личного или агентского)
+        :param client_id:       int - айди клиента, если в cabinet_id передан агентский кабинет
+        :param campaign_id:     int - айди кампании
         :param ad_ids:          list of int - список айди объявлений
         :param ad_names:        dict - {ad_id: ad_name}
 
-        :return:                dict - {ad_id: {'name': str, 'spent': float, 'reach': int}}
+        :return:                dict - {ad_id: {'name': str, 'spent': float, 'reach': int, 'cpm': cpm}}
 
         """
         ads_list = ''

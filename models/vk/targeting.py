@@ -170,7 +170,7 @@ class TargetingAssistant:
     def get_ads_stat(self):
         """
         Возвращает полную необходимую стату в виде
-        {ad_id: {'name': str, 'spent': float, 'reach': int, 'listens': int}}
+        dict - {ad_id: {'name': str, 'spent': float, 'reach': int, 'cpm': cpm}}
 
         """
         # Проверка на наличие объявлений в объекте
@@ -656,7 +656,7 @@ class TargetingManager:
     def get_ads_stat(self):
         """
         Возвращает стату по объявлениям в виде
-        {ad_id: {'name': str, 'spent': float, 'reach': int, 'listens': int}}
+        dict - {ad_id: {'name': str, 'spent': float, 'reach': int, 'cpm': cpm}}
 
         """
         return self.Assistant.get_ads_stat()
