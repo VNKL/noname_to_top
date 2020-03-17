@@ -482,7 +482,7 @@ class VkAdsBackend:
         try:
             retarget = {}
             for base in resp['response']:
-                if base['audience_count'] >= 200000:
+                if base['audience_count'] >= 650000:
                     retarget[base['name']] = base['id']
             return retarget
         except Exception:
