@@ -14,7 +14,7 @@ class Users(Model):
 
 class UserCabinets(Model):
     owner = ForeignKeyField(Users, related_name='user_cabinets')
-    cabinet_id = IntegerField(unique=True)
+    cabinet_id = IntegerField()
     cabinet_name = CharField()
 
     class Meta:
@@ -23,7 +23,7 @@ class UserCabinets(Model):
 
 class AgencyCabinets(Model):
     owner = ForeignKeyField(Users, related_name='agency_cabinets')
-    cabinet_id = IntegerField(unique=True)
+    cabinet_id = IntegerField()
     cabinet_name = CharField()
 
     class Meta:
@@ -32,7 +32,7 @@ class AgencyCabinets(Model):
 
 class ClientCabinets(Model):
     owner = ForeignKeyField(AgencyCabinets, related_name='agency_clients')
-    cabinet_id = IntegerField(unique=True)
+    cabinet_id = IntegerField()
     cabinet_name = CharField()
 
     class Meta:

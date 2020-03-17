@@ -588,8 +588,8 @@ class TargetingManager:
             cabinet = AgencyCabinets.get_by_id(client_cabinet.owner)
             return cabinet, campaign, client_cabinet
 
-    def _new_user_campaign(self, artist_group_id, artist_name, cabinet, campaign_budget, citation, cover_path,
-                           music_interest_filter, track_name):
+    def _new_user_campaign(self, artist_group_id, fake_group_id, artist_name, cabinet, campaign_budget, citation,
+                           cover_path, music_interest_filter, track_name):
         # Инициализирует ассистента для работы с личным кабинетом
         self.Assistant = TargetingAssistant(user_id=self.user.user_id,
                                             login=self.user.login,
@@ -598,6 +598,7 @@ class TargetingManager:
                                             artist_name=artist_name,
                                             track_name=track_name,
                                             artist_group_id=artist_group_id,
+                                            fake_group_id=fake_group_id,
                                             cabinet_id=cabinet.cabinet_id,
                                             cover_path=cover_path,
                                             citation=citation,
@@ -636,8 +637,8 @@ class TargetingManager:
 
         self.automate_campaign(tested=True)
 
-    def _new_client_campaign(self, agency_cabinet, artist_group_id, artist_name, campaign_budget, citation,
-                             client_cabinet, cover_path, music_interest_filter, track_name):
+    def _new_client_campaign(self, agency_cabinet, artist_group_id, fake_group_id, artist_name, campaign_budget,
+                             citation, client_cabinet, cover_path, music_interest_filter, track_name):
         # Инициализирует ассистента для работы с клиентским кабинетом
         self.Assistant = TargetingAssistant(user_id=self.user.user_id,
                                             login=self.user.login,
@@ -646,6 +647,7 @@ class TargetingManager:
                                             artist_name=artist_name,
                                             track_name=track_name,
                                             artist_group_id=artist_group_id,
+                                            fake_group_id=fake_group_id,
                                             cabinet_id=agency_cabinet.cabinet_id,
                                             client_id=client_cabinet.cabinet_id,
                                             cover_path=cover_path,
@@ -687,34 +689,51 @@ class TargetingManager:
 
     def start_new_campaign(self, artist_name, track_name, artist_group_id, cover_path=None, citation=None,
                            user_cabinet_name=None, agency_cabinet_name=None, client_cabinet_name=None,
-                           music_interest_filter=False, campaign_budget=0):
+                           music_interest_filter=False, campaign_budget=0, fake_group_id=None):
 
         # Достает личный кабинет, если передано название личного кабинета
         if user_cabinet_name:
             for x in self.user_cabinets:
                 if x.cabinet_name == user_cabinet_name:
                     cabinet = x
+                    # Запускает новую кампанию в личном кабинете
+                    self._new_user_campaign(artist_group_id=artist_group_id,
+                                            fake_group_id=fake_group_id,
+                                            artist_name=artist_name,
+                                            track_name=track_name,
+                                            cabinet=cabinet,
+                                            campaign_budget=campaign_budget,
+                                            citation=citation,
+                                            cover_path=cover_path,
+                                            music_interest_filter=music_interest_filter)
                 else:
                     raise ValueError(f'У этого пользователя нет кабинета с названием {user_cabinet_name}')
-            # Запускает новую кампанию в личном кабинете
-            self._new_user_campaign(artist_group_id, artist_name, cabinet, campaign_budget, citation, cover_path,
-                                    music_interest_filter, track_name)
+
 
         # Достает агентский и клиентский кабинеты
         elif agency_cabinet_name and client_cabinet_name:
             for x in self.agency_cabinets:
                 if x.cabinet_name == agency_cabinet_name:
                     agency_cabinet = x
-                    for y in self.client_cabinets[agency_cabinet]:
+                    for y in self.client_cabinets[agency_cabinet.cabinet_id]:
                         if y.cabinet_name == client_cabinet_name:
                             client_cabinet = y
+                            # Запускает новую кампанию в агентском кабинете
+                            self._new_client_campaign(agency_cabinet=agency_cabinet,
+                                                      artist_group_id=artist_group_id,
+                                                      fake_group_id=fake_group_id,
+                                                      artist_name=artist_name,
+                                                      track_name=track_name,
+                                                      campaign_budget=campaign_budget,
+                                                      citation=citation,
+                                                      client_cabinet=client_cabinet,
+                                                      cover_path=cover_path,
+                                                      music_interest_filter=music_interest_filter)
                         else:
                             raise ValueError(f'У агентсва {agency_cabinet_name} нет клиента {client_cabinet_name}')
                 else:
                     raise ValueError(f'У этого пользователя нет агентского кабинета {agency_cabinet_name}')
-            # Запускает новую кампанию в агентском кабинете
-            self._new_client_campaign(agency_cabinet, artist_group_id, artist_name, campaign_budget, citation,
-                                      client_cabinet, cover_path, music_interest_filter, track_name)
+
 
     def continue_campaign(self, artist_name, track_name, cabinet_type='user', tested=True):
 

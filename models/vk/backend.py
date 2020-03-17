@@ -203,6 +203,17 @@ class VkGroupAudio:
         time.sleep(1)
         if self.browser.current_url == 'https://vk.com/feed':
             print('successfully auth on vk.com')
+        elif self.browser.current_url == 'https://vk.com/login?act=authcheck':
+            two_fact_form = self.browser.find_element_by_xpath('//*[@id="authcheck_code"]')
+            two_fact_code = input('Введи код двухфакторной аутентификации: ')
+            two_fact_form.send_keys(two_fact_code)
+            submit_btn = self.browser.find_element_by_xpath('//*[@id="login_authcheck_submit_btn"]')
+            submit_btn.click()
+            time.sleep(3)
+            if self.browser.current_url == 'https://vk.com/feed':
+                print('successfully auth on vk.com')
+            else:
+                raise RuntimeError('something wrong with login on vk.com, run with headless=False to see it')
         else:
             raise RuntimeError('something wrong with login on vk.com, run with headless=False to see it')
 
@@ -341,31 +352,47 @@ class VkAdsBackend:
                   f'access_token={self.token}&v=5.103'
         return url
 
-    def _url_for_create_campaign(self, cabinet_id, client_id, data):
+    def _url_for_create_campaign(self, cabinet_id, client_id, campaign_name, money_limit):
         # Если кампания создается в личном кабинете (не передается айди клиента)
         if client_id is None:
-            url = f'https://api.vk.com/method/ads.createCampaigns?account_id={cabinet_id}' \
-                  f'&data={data}&' \
+            # JSON массив с параметрами создаваемой кампании
+            data = [{
+                'type': 'promoted_posts',  # Для продвижения дарк-постов
+                'name': campaign_name,  # Название кампании
+                'all_limit': money_limit,  # Бюджет кампании
+                'status': 1  # 1 - запущена, 0 - остановлена
+            }]
+            data = json.dumps(data)
+            url = f'https://api.vk.com/method/ads.createCampaigns?account_id={cabinet_id}&' \
+                  f'data={data}&' \
                   f'access_token={self.token}&v=5.103'
         # Если кампания создается в кабинете агентства (передается айди клиента)
         else:
-            url = f'https://api.vk.com/method/ads.createCampaigns?account_id={cabinet_id}' \
-                  f'client_id={client_id}&' \
-                  f'&data={data}&' \
+            # JSON массив с параметрами создаваемой кампании
+            data = [{
+                'client_id': client_id,
+                'type': 'promoted_posts',  # Для продвижения дарк-постов
+                'name': campaign_name,  # Название кампании
+                'all_limit': money_limit,  # Бюджет кампании
+                'status': 1  # 1 - запущена, 0 - остановлена
+            }]
+            data = json.dumps(data)
+            url = f'https://api.vk.com/method/ads.createCampaigns?account_id={cabinet_id}&' \
+                  f'data={data}&' \
                   f'access_token={self.token}&v=5.103'
         return url
 
     def _url_for_create_ads(self, cabinet_id, client_id, data):
         # Если делаем в личном кабинете
         if client_id is None:
-            url = f'https://api.vk.com/method/ads.createAds?account_id={cabinet_id}' \
-                  f'&data={data}&' \
+            url = f'https://api.vk.com/method/ads.createAds?account_id={cabinet_id}&' \
+                  f'data={data}&' \
                   f'access_token={self.token}&v=5.103'
         # Если делаем в кабинете агентства
         else:
-            url = f'https://api.vk.com/method/ads.createAds?account_id={cabinet_id}' \
+            url = f'https://api.vk.com/method/ads.createAds?account_id={cabinet_id}&' \
                   f'client_id={client_id}&' \
-                  f'&data={data}&' \
+                  f'data={data}&' \
                   f'access_token={self.token}&v=5.103'
         return url
 
@@ -481,9 +508,13 @@ class VkAdsBackend:
         resp = self.session.get(url).json()
         try:
             retarget = {}
+            n = 0
             for base in resp['response']:
                 if base['audience_count'] >= 650000:
                     retarget[base['name']] = base['id']
+                    n += 1
+                    if n == 100:
+                        return retarget
             return retarget
         except Exception:
             print('Some error with get_retarget:')
@@ -747,17 +778,11 @@ class VkAdsBackend:
         :return:                int - campaign_id
 
         """
-        # JSON массив с параметрами создаваемой кампании
-        data = [{
-            'type': 'promoted_posts',       # Для продвижения дарк-постов
-            'name': campaign_name,          # Название кампании
-            'all_limit': money_limit,       # Бюджет кампании
-            'status': 1                     # 1 - запущена, 0 - остановлена
-        }]
 
-        data = json.dumps(data)
-        url = self._url_for_create_campaign(cabinet_id, client_id, data)
+
+        url = self._url_for_create_campaign(cabinet_id, client_id, campaign_name, money_limit)
         resp = self.session.get(url).json()
+        print(resp)
         try:
             campaign_id = resp['response'][0]['id']
             return campaign_id
